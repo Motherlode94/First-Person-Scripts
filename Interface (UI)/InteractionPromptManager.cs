@@ -1,6 +1,7 @@
 using UnityEngine;
 using TMPro;
 using System.Collections;
+using System;
 
 /// <summary>
 /// Manages interaction prompts throughout the game with proper visibility and transitions
@@ -70,24 +71,44 @@ public class InteractionPromptManager : MonoBehaviour
         }
     }
 
-    private void ConfigureTextVisibility()
+private void ConfigureTextVisibility()
+{
+    if (promptText != null)
     {
-        if (promptText != null)
+        // Attendre une frame pour garantir que les matériaux sont initialisés
+        StartCoroutine(DelayedTextConfig());
+        
+        // Ces propriétés sont sûres même sans le material
+        promptText.color = textColor;
+        promptText.fontSize = fontSize;
+        promptText.fontStyle = FontStyles.Bold;
+        promptText.enableWordWrapping = true;
+        promptText.alignment = TextAlignmentOptions.Center;
+    }
+    else
+    {
+        Debug.LogWarning("InteractionPromptManager: promptText n'est pas assigné dans l'inspecteur");
+    }
+}
+
+private IEnumerator DelayedTextConfig()
+{
+    // Attendre que le canvas ait eu le temps de s'initialiser complètement
+    yield return new WaitForEndOfFrame();
+    
+    if (promptText != null && promptText.materialForRendering != null)
+    {
+        try
         {
-            // Color and size
-            promptText.color = textColor;
-            promptText.fontSize = fontSize;
-            
-            // Outline
             promptText.outlineWidth = outlineWidth;
             promptText.outlineColor = outlineColor;
-            
-            // Style and readability
-            promptText.fontStyle = FontStyles.Bold;
-            promptText.enableWordWrapping = true;
-            promptText.alignment = TextAlignmentOptions.Center;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"Impossible de configurer l'outline: {e.Message}");
         }
     }
+}
     
     private void ConfigureBackground()
     {
