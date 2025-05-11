@@ -31,67 +31,91 @@ public class HoldPromptUI : MonoBehaviour
     private Coroutine fadeCoroutine;
     private float maxHoldTime = 2f;
 
-    private void Awake()
+private void Awake()
+{
+    // Singleton pattern
+    if (Instance != null && Instance != this)
     {
-        // Singleton pattern
-        if (Instance != null && Instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
-
-        Instance = this;
-
-        // Ensure we have a canvas group
-        if (canvasGroup == null && promptPanel != null)
-        {
-            canvasGroup = promptPanel.GetComponent<CanvasGroup>();
-            if (canvasGroup == null)
-                canvasGroup = promptPanel.AddComponent<CanvasGroup>();
-        }
-
-        // Keep the panel active but with the specified minimum opacity
-        if (promptPanel != null)
-            promptPanel.SetActive(true);
-
-        if (canvasGroup != null)
-            canvasGroup.alpha = minAlpha;
-            
-        // Améliorer la visibilité du texte
-        ConfigureTextVisibility();
-        
-        // Configurer le fond s'il existe
-        ConfigureBackground();
+        Destroy(gameObject);
+        return;
     }
+
+    Instance = this;
+
+    // Ensure we have a canvas group
+    if (canvasGroup == null && promptPanel != null)
+    {
+        canvasGroup = promptPanel.GetComponent<CanvasGroup>();
+        if (canvasGroup == null)
+            canvasGroup = promptPanel.AddComponent<CanvasGroup>();
+    }
+
+    // Initially HIDE the panel completely
+    if (promptPanel != null)
+        promptPanel.SetActive(false);
+
+    if (canvasGroup != null)
+        canvasGroup.alpha = 0f;
+        
+    // Don't call ConfigureTextVisibility directly - use coroutine instead
+    StartCoroutine(DelayedInitialization());
+}
+
+private IEnumerator DelayedInitialization()
+{
+    // Wait for end of frame to ensure TextMeshPro components are properly initialized
+    yield return new WaitForEndOfFrame();
     
-    private void ConfigureTextVisibility()
+    // Now safely configure text and background
+    ConfigureTextVisibility();
+    ConfigureBackground();
+}
+
+private void ConfigureTextVisibility()
+{
+    try
     {
         // Configurer le texte principal
         if (promptText != null)
         {
-            promptText.outlineWidth = textOutlineWidth;
-            promptText.outlineColor = textOutlineColor;
+            // Set safe properties first
             promptText.color = textColor;
+            promptText.enableWordWrapping = true;
+            promptText.overflowMode = TextOverflowModes.Ellipsis;
             
             if (useBoldText)
                 promptText.fontStyle = FontStyles.Bold;
-                
-            // S'assurer que le texte est lisible
-            promptText.enableWordWrapping = true;
-            promptText.overflowMode = TextOverflowModes.Ellipsis;
+            
+            // Set material-dependent properties if material is available
+            if (promptText.materialForRendering != null)
+            {
+                promptText.outlineWidth = textOutlineWidth;
+                promptText.outlineColor = textOutlineColor;
+            }
         }
         
         // Configurer le texte du temps
         if (holdTimeText != null)
         {
-            holdTimeText.outlineWidth = textOutlineWidth;
-            holdTimeText.outlineColor = textOutlineColor;
+            // Set safe properties first
             holdTimeText.color = textColor;
             
             if (useBoldText)
                 holdTimeText.fontStyle = FontStyles.Bold;
+            
+            // Set material-dependent properties if material is available
+            if (holdTimeText.materialForRendering != null)
+            {
+                holdTimeText.outlineWidth = textOutlineWidth;
+                holdTimeText.outlineColor = textOutlineColor;
+            }
         }
     }
+    catch (System.Exception e)
+    {
+        Debug.LogWarning($"HoldPromptUI: Exception during text configuration: {e.Message}");
+    }
+}
     
     private void ConfigureBackground()
     {
@@ -118,7 +142,6 @@ public class HoldPromptUI : MonoBehaviour
             StopCoroutine(fadeCoroutine);
     }
 
-// Correction pour HoldPromptUI.cs
 public void ShowPrompt(string text, float holdTime = 0f)
 {
     // Safety check - don't try to use a destroyed object
@@ -153,7 +176,7 @@ public void ShowPrompt(string text, float holdTime = 0f)
         progressBar.fillAmount = 0f;
     }
 
-    // Ensure panel is active
+    // Ensure panel is active before fading in
     if (promptPanel != null)
         promptPanel.SetActive(true);
 
