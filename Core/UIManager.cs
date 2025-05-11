@@ -134,7 +134,10 @@ private string currentSwitchID = null;
         Debug.Log($"UIManager: Mission activée - {mission.missionTitle}");
         RefreshMissionUI(mission);
     }
-    public void RefreshMissionUI(Mission mission)
+// Correction pour UIManager.cs - Partie responsable de l'affichage des missions
+// Remplacer la méthode RefreshMissionUI dans la classe UIManager
+
+public void RefreshMissionUI(Mission mission)
 {
     if (!isInitialized)
     {
@@ -165,11 +168,11 @@ private string currentSwitchID = null;
         if (listText != null) listText.text = "";
         
         if (missionPanel != null)
-{
-    missionPanel.gameObject.SetActive(true);
-    if (panelCanvasGroup != null)
-        panelCanvasGroup.alpha = 0.5f; // Visible mais en semi-transparence quand inactif
-}
+        {
+            missionPanel.gameObject.SetActive(true);
+            if (panelCanvasGroup != null)
+                panelCanvasGroup.alpha = 0.5f; // Visible mais en semi-transparence quand inactif
+        }
             
         Debug.Log("UIManager: UI nettoyée (aucune mission active)");
         return;
@@ -182,7 +185,7 @@ private string currentSwitchID = null;
         Debug.Log("UIManager: Panneau de mission activé");
     }
     
-    // Configurer le panneau de mission - TOUJOURS afficher le titre et la description
+    // Configuration du panneau de mission - TOUJOURS afficher le titre et la description
     if (titleText != null) 
     {
         titleText.text = mission.missionTitle;
@@ -348,8 +351,8 @@ private string currentSwitchID = null;
                 RectTransform rectTransform = clone.GetComponent<RectTransform>();
                 if (rectTransform != null)
                 {
-                    float entryHeight = 60f; // Hauteur standard pour chaque entrée
-                    float spacing = 5f;      // Espacement entre les entrées
+                    float entryHeight = objectiveHeight; // Hauteur standard pour chaque entrée
+                    float spacing = objectiveSpacing;    // Espacement entre les entrées
                     
                     rectTransform.anchorMin = new Vector2(0, 1);
                     rectTransform.anchorMax = new Vector2(1, 1);
@@ -360,30 +363,8 @@ private string currentSwitchID = null;
                     rectTransform.anchoredPosition = new Vector2(0, yPosition);
                     rectTransform.sizeDelta = new Vector2(0, entryHeight);
                     
-                    // Amélioration: configuration des éléments enfants
-                    if (titleTransform != null)
-                    {
-                        RectTransform titleRect = titleTransform.GetComponent<RectTransform>();
-                        if (titleRect != null)
-                        {
-                            titleRect.anchorMin = new Vector2(0, 0);
-                            titleRect.anchorMax = new Vector2(0.8f, 1);
-                            titleRect.offsetMin = new Vector2(10, 5);
-                            titleRect.offsetMax = new Vector2(-5, -5);
-                        }
-                    }
-                    
-                    if (descTransform != null)
-                    {
-                        RectTransform descRect = descTransform.GetComponent<RectTransform>();
-                        if (descRect != null)
-                        {
-                            descRect.anchorMin = new Vector2(0.8f, 0);
-                            descRect.anchorMax = new Vector2(1, 1);
-                            descRect.offsetMin = new Vector2(5, 5);
-                            descRect.offsetMax = new Vector2(-10, -5);
-                        }
-                    }
+                    // Appliquer la configuration aux éléments enfants
+                    ConfigureObjectiveLayout(clone);
                 }
                 
                 // Incrémenter l'index pour le prochain objectif
@@ -398,6 +379,8 @@ private string currentSwitchID = null;
         // Mettre à jour la liste récapitulative si nécessaire
         if (listText != null && objectivesToShow.Count > 0)
         {
+            listText.text = ""; // Réinitialiser le texte
+            
             foreach (var obj in objectivesToShow)
             {
                 string color = obj.IsCompleted ? "green" : 
@@ -490,7 +473,6 @@ private void ConfigureObjectiveLayout(GameObject objectiveEntry)
         }
     }
 }
-// Add these methods to your UIManager class:
 
 public void ShowXPGain(int amount)
 {
