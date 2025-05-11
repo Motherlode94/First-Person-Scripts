@@ -3,7 +3,7 @@ using UnityEngine;
 using System.Collections;
 
 [RequireComponent(typeof(Rigidbody))]
-public class VehicleController : MonoBehaviour, IVehicle
+public class VehicleController : MonoBehaviour, IVehicle, IInteractable
 {
     #region IVehicle Implementation
     [Header("Vehicle Identity")]
@@ -19,6 +19,9 @@ public class VehicleController : MonoBehaviour, IVehicle
     
     [Header("Exit Configuration")]
     [SerializeField] private Transform playerExitPoint;
+    
+    [Header("Interaction")]
+    [SerializeField] private string interactionText = "Appuyez sur E pour monter à bord";
     
     private bool isControlled = false;
     private float currentHealth;
@@ -46,7 +49,7 @@ public class VehicleController : MonoBehaviour, IVehicle
                     
                 // On informe le gestionnaire de missions si nécessaire
                 if (MissionManager.Instance != null)
-                    MissionManager.Instance.NotifyObjectives(ObjectiveType.EquipWeapon, vehicleID);
+                    MissionManager.Instance.NotifyObjectives(ObjectiveType.EquipWeapon, id: vehicleID);
             }
             else
             {
@@ -65,6 +68,59 @@ public class VehicleController : MonoBehaviour, IVehicle
     public float FuelLevel => currentFuel;
     
     public bool IsOperational => currentHealth > 0 && (!requiresFuel || currentFuel > 0);
+    
+    // Implémentation de IInteractable
+    public string GetInteractionText()
+    {
+        if (!IsOperational)
+        {
+            if (FuelLevel <= 0)
+                return $"{DisplayName} - Manque de carburant";
+            else if (Health <= 0)
+                return $"{DisplayName} - Trop endommagé";
+            else
+                return $"{DisplayName} - Hors service";
+        }
+        
+        return $"Appuyez sur E pour monter à bord du {DisplayName}";
+    }
+    
+    public void Interact(GameObject interactor)
+    {
+        if (!IsOperational)
+        {
+            // Afficher un message d'erreur si le véhicule n'est pas opérationnel
+            string message = "Ce véhicule n'est pas en état de fonctionner";
+            if (FuelLevel <= 0)
+                message = "Ce véhicule n'a plus de carburant";
+            else if (Health <= 0)
+                message = "Ce véhicule est trop endommagé";
+                
+            // Afficher le message via un système d'UI approprié
+            if (InteractionPromptManager.Instance != null)
+            {
+                InteractionPromptManager.Instance.UpdatePromptText(message);
+                InteractionPromptManager.Instance.FlashPrompt();
+            }
+            else if (InteractionPrompt.Instance != null)
+            {
+                InteractionPrompt.Instance.ShowPrompt(message);
+            }
+            return;
+        }
+        
+        // Rechercher le composant PlayerVehicleInteractor sur l'interactor
+        PlayerVehicleInteractor vehicleInteractor = interactor.GetComponent<PlayerVehicleInteractor>();
+        if (vehicleInteractor != null)
+        {
+            // Le PlayerVehicleInteractor gère déjà l'entrée du joueur avec sa propre logique
+            // Il va appeler OnPlayerEnter de ce script via sa méthode EnterVehicle()
+            return;
+        }
+        
+        // Si aucun PlayerVehicleInteractor n'est trouvé, gérer l'entrée directement
+        OnPlayerEnter(interactor);
+    }
     
     public void OnPlayerEnter(GameObject player)
     {

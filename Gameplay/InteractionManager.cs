@@ -18,12 +18,21 @@ public class InteractionManager : MonoBehaviour, IPlayerCharacterSubscriber
     [SerializeField] private float fadeInSpeed = 8f;
     [SerializeField] private float fadeOutSpeed = 5f;
     
+    // Static instance pour pouvoir y accéder depuis d'autres scripts
+    public static InteractionManager Instance { get; private set; }
+    
     private IInteractable currentInteractable;
     private bool isPlayerControlsEnabled = true;
     private SoloPlayerCharacterEventWatcher m_CharacterWatcher = null;
     
     private void Awake()
     {
+        // Définir l'instance statique
+        if (Instance == null)
+            Instance = this;
+        else if (Instance != this)
+            Destroy(gameObject);
+            
         // Initialiser le Canvas Group si nécessaire
         if (canvasGroup == null && interactionUI != null)
             canvasGroup = interactionUI.GetComponent<CanvasGroup>();
@@ -44,103 +53,146 @@ public class InteractionManager : MonoBehaviour, IPlayerCharacterSubscriber
     {
         if (m_CharacterWatcher != null)
             m_CharacterWatcher.ReleaseSubscriber(this);
+            
+        if (Instance == this)
+            Instance = null;
     }
     
-// Correction pour InteractionManager.cs - Méthode Update()
-private void Update()
-{
-    if (!isPlayerControlsEnabled || FpsSoloCharacter.localPlayerCharacter == null)
-        return;
-            
-    // Raycast depuis la caméra du personnage
-    Camera fpsCam = FpsSoloCharacter.localPlayerCharacter.gameObject.GetComponentInChildren<Camera>();
-    if (fpsCam == null)
-        return;
-            
-    // Ajout de debug pour vérifier la distance
-    Debug.DrawRay(fpsCam.transform.position, fpsCam.transform.forward * interactionDistance, Color.yellow);
-            
-    if (Physics.Raycast(fpsCam.transform.position, fpsCam.transform.forward, out RaycastHit hit, interactionDistance, interactableMask))
+    private void Update()
     {
-        // Sans filtrer par layer
-        IInteractable interactable = hit.collider.GetComponent<IInteractable>();
-        if (interactable == null)
-            interactable = hit.collider.GetComponentInParent<IInteractable>();
-                
-        if (interactable != null)
-        {
-            // Debug pour confirmer que l'objet interactable est détecté
-            Debug.Log($"Interactable détecté: {hit.collider.name}, distance: {hit.distance}");
-                
-            // Afficher l'UI d'interaction
-            ShowInteractionUI(interactable.GetInteractionText());
-            currentInteractable = interactable;
-                
-            // Interagir si le joueur utilise l'action d'interaction
-            if (IsInteractionTriggered())
-            {
-                interactable.Interact(FpsSoloCharacter.localPlayerCharacter.gameObject);
-            }
-                
+        if (!isPlayerControlsEnabled || FpsSoloCharacter.localPlayerCharacter == null)
             return;
+            
+        // Raycast depuis la caméra du personnage
+        Camera fpsCam = FpsSoloCharacter.localPlayerCharacter.gameObject.GetComponentInChildren<Camera>();
+        if (fpsCam == null)
+            return;
+            
+        // Ajout de debug pour vérifier la distance
+        Debug.DrawRay(fpsCam.transform.position, fpsCam.transform.forward * interactionDistance, Color.yellow);
+            
+        // Vérifier les interactables en général (priorité secondaire)
+        if (Physics.Raycast(fpsCam.transform.position, fpsCam.transform.forward, out RaycastHit hit, interactionDistance, interactableMask))
+        {
+            // Rechercher IVehicle d'abord (plus spécifique)
+            IVehicle vehicle = hit.collider.GetComponentInParent<IVehicle>();
+            if (vehicle != null)
+            {
+                // Laissons le PlayerVehicleInteractor gérer l'interaction avec le véhicule
+                // car il a une logique plus spécifique
+                return;
+            }
+            
+            // Rechercher IInteractable ensuite (plus général)
+            IInteractable interactable = hit.collider.GetComponent<IInteractable>();
+            if (interactable == null)
+                interactable = hit.collider.GetComponentInParent<IInteractable>();
+                
+            if (interactable != null)
+            {
+                // Debug pour confirmer que l'objet interactable est détecté
+                Debug.Log($"Interactable détecté: {hit.collider.name}, distance: {hit.distance}");
+                
+                // Afficher l'UI d'interaction
+                ShowInteractionUI(interactable.GetInteractionText());
+                currentInteractable = interactable;
+                
+                // Interagir si le joueur utilise l'action d'interaction
+                if (IsInteractionTriggered())
+                {
+                    interactable.Interact(FpsSoloCharacter.localPlayerCharacter.gameObject);
+                }
+                
+                return;
+            }
+        }
+        
+        // Aucun objet interactif trouvé
+        if (currentInteractable != null)
+        {
+            currentInteractable = null;
+            HideInteractionUI();
         }
     }
-        
-    // Aucun objet interactif trouvé
-    currentInteractable = null;
-    HideInteractionUI();
-}
 
-// Assurez-vous que ShowInteractionUI fonctionne correctement
-private void ShowInteractionUI(string text)
-{
-    // Vérifier si InteractionPromptManager.Instance existe
-    if (InteractionPromptManager.Instance != null)
+    // Méthode publique pour afficher l'UI d'interaction (utilisable par d'autres scripts)
+    public void ShowInteractionUI(string text)
     {
-        InteractionPromptManager.Instance.ShowPrompt(text);
-        Debug.Log($"Affichage du prompt via manager: {text}");
-    }
-    else
-    {
-        // Utiliser une méthode alternative si le manager n'existe pas
+        // Vérifier si InteractionPromptManager.Instance existe en priorité
+        if (InteractionPromptManager.Instance != null)
+        {
+            InteractionPromptManager.Instance.ShowPrompt(text);
+            Debug.Log($"Affichage du prompt via InteractionPromptManager: {text}");
+            return;
+        }
+        
+        // Vérifier si InteractionPrompt.Instance existe ensuite
+        if (InteractionPrompt.Instance != null)
+        {
+            InteractionPrompt.Instance.ShowPrompt(text);
+            Debug.Log($"Affichage du prompt via InteractionPrompt: {text}");
+            return;
+        }
+        
+        // Utiliser l'UI locale comme dernier recours
         if (interactionUI != null)
         {
             interactionUI.SetActive(true);
+            
             if (interactionText != null)
                 interactionText.text = text;
+                
             if (canvasGroup != null)
+            {
+                // Assurer que l'UI est visible
                 canvasGroup.alpha = 1f;
+                canvasGroup.interactable = true;
+                canvasGroup.blocksRaycasts = true;
+            }
+            
             Debug.Log($"Affichage du prompt direct: {text}");
         }
         else
         {
-            Debug.LogError("InteractionUI n'est pas assigné dans l'inspecteur!");
+            Debug.LogWarning("InteractionUI n'est pas assigné dans l'inspecteur!");
         }
     }
-}
     
-    private void HideInteractionUI()
+    // Méthode publique pour masquer l'UI d'interaction (utilisable par d'autres scripts)
+    public void HideInteractionUI()
     {
-        // Vérifier si InteractionPromptManager.Instance existe
+        // Vérifier si InteractionPromptManager.Instance existe en priorité
         if (InteractionPromptManager.Instance != null)
         {
             InteractionPromptManager.Instance.HidePrompt();
+            return;
         }
-        else
+        
+        // Vérifier si InteractionPrompt.Instance existe ensuite
+        if (InteractionPrompt.Instance != null)
         {
-            // Utiliser une méthode alternative si le manager n'existe pas
-            if (interactionUI != null)
+            InteractionPrompt.Instance.HidePrompt();
+            return;
+        }
+        
+        // Utiliser l'UI locale comme dernier recours
+        if (interactionUI != null)
+        {
+            if (canvasGroup != null)
             {
-                if (canvasGroup != null)
-                    canvasGroup.alpha = 0f;
-                interactionUI.SetActive(false);
+                canvasGroup.alpha = 0f;
+                canvasGroup.interactable = false;
+                canvasGroup.blocksRaycasts = false;
             }
+            
+            interactionUI.SetActive(false);
         }
     }
-private bool IsInteractionTriggered()
-{
-    return Input.GetKeyDown(KeyCode.E) || Input.GetButtonDown("Interact");
-}
+
+    private bool IsInteractionTriggered()
+    {
+        return Input.GetKeyDown(KeyCode.E) || Input.GetButtonDown("Interact");
+    }
     
     public void EnableControls(bool enable)
     {
