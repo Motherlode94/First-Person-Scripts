@@ -7,11 +7,11 @@ public class InteractionPrompt : MonoBehaviour
 {
     [SerializeField] private GameObject promptPanel;
     [SerializeField] private TMP_Text promptText;
-    [SerializeField] private float fadeSpeed = 3f;
+    [SerializeField] private float fadeSpeed = 0f;
     [SerializeField] private float textOutlineWidth = 0.2f; // Ajout d'un contour
     [SerializeField] private Color textOutlineColor = Color.black; // Couleur du contour
     [SerializeField] private Color textColor = Color.white; // Couleur du texte
-    [SerializeField] private float minAlpha = 0.8f; // Alpha minimum augmenté
+    [SerializeField] private float minAlpha = 1f; // Alpha minimum augmenté
     
     private static InteractionPrompt _instance;
     public static InteractionPrompt Instance => _instance;
