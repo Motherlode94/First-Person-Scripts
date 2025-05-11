@@ -1,348 +1,192 @@
-// Assets/Scripts/Inventory/InventoryManager.cs
-using System;
-using System.Collections.Generic;
 using UnityEngine;
+using TMPro;
+using NeoFPS;
+using NeoFPS.SinglePlayer;
 
-/// <summary>
-/// Manages the player's inventory, handling items, stacking, and interactions
-/// </summary>
-public class InventoryManager : MonoBehaviour
+public class InteractionManager : MonoBehaviour, IPlayerCharacterSubscriber
 {
-    #region Singleton
-    public static InventoryManager Instance { get; private set; }
-
+    [Header("Paramètres")]
+    [SerializeField] private float interactionDistance = 3f;
+    [SerializeField] private LayerMask interactableMask;
+    
+    [Header("UI")]
+    [SerializeField] private GameObject interactionUI;
+    [SerializeField] private TMP_Text interactionText;
+    [SerializeField] private CanvasGroup canvasGroup;
+    
+    [Header("Effets")]
+    [SerializeField] private float fadeInSpeed = 8f;
+    [SerializeField] private float fadeOutSpeed = 5f;
+    
+    private IInteractable currentInteractable;
+    private bool isPlayerControlsEnabled = true;
+    private SoloPlayerCharacterEventWatcher m_CharacterWatcher = null;
+    
     private void Awake()
     {
-        if (Instance == null)
-        {
-            Instance = this;
-            DontDestroyOnLoad(gameObject);
-        }
-        else
-        {
-            Destroy(gameObject);
-        }
-    }
-    #endregion
-    
-    #region Item Stack Structure
-    [Serializable]
-    public struct ItemStack
-    {
-        public InventoryItem item;
-        public int count;
-    }
-    #endregion
-
-    #region Properties and Fields
-    public int capacity = 20;
-    public List<ItemStack> items = new List<ItemStack>();
-    public event Action OnInventoryChanged;
-    #endregion
-
-    #region Item Management Methods
-    /// <summary>
-    /// Adds an item to the inventory, stacking if possible
-    /// </summary>
-    /// <returns>True if the item was added successfully</returns>
-    public bool AddItem(InventoryItem newItem, int amount = 1)
-    {
-        if (newItem == null)
-            return false;
-
-        // Stackable items: try to add to existing stacks
-        if (newItem.stackable)
-        {
-            for (int i = 0; i < items.Count; i++)
-            {
-                if (items[i].item == newItem && items[i].count < newItem.maxStack)
-                {
-                    int space = newItem.maxStack - items[i].count;
-                    int toAdd = Mathf.Min(space, amount);
-                    var stack = items[i];
-                    stack.count += toAdd;
-                    items[i] = stack;
-                    amount -= toAdd;
-                    if (amount <= 0)
-                    {
-                        OnInventoryChanged?.Invoke();
-                        return true;
-                    }
-                }
-            }
-        }
-
-        // Add new stacks if capacity allows
-        while (amount > 0 && items.Count < capacity)
-        {
-            int toPut = newItem.stackable ? Mathf.Min(amount, newItem.maxStack) : 1;
-            items.Add(new ItemStack { item = newItem, count = toPut });
-            amount -= toPut;
-        }
-
-        OnInventoryChanged?.Invoke();
-        return amount <= 0;
-    }
-
-    /// <summary>
-    /// Removes an item from the inventory
-    /// </summary>
-    /// <returns>True if the required amount was successfully removed</returns>
-    public bool RemoveItem(InventoryItem itemToRemove, int amount = 1)
-    {
-        if (itemToRemove == null)
-            return false;
-
-        for (int i = items.Count - 1; i >= 0 && amount > 0; i--)
-        {
-            if (items[i].item == itemToRemove)
-            {
-                int toTake = Mathf.Min(items[i].count, amount);
-                var stack = items[i];
-                stack.count -= toTake;
-                amount -= toTake;
-                if (stack.count <= 0)
-                    items.RemoveAt(i);
-                else
-                    items[i] = stack;
-            }
-        }
-
-        OnInventoryChanged?.Invoke();
-        return amount <= 0;
-    }
-
-    /// <summary>
-    /// Checks if the inventory contains a specific item
-    /// </summary>
-    public bool HasItem(InventoryItem checkItem, int amount = 1)
-    {
-        if (checkItem == null)
-            return false;
-
-        int total = 0;
-        foreach (var stack in items)
-        {
-            if (stack.item == checkItem)
-                total += stack.count;
-        }
-        return total >= amount;
-    }
-
-    /// <summary>
-    /// Uses an item, applying its effect and consuming it if necessary
-    /// </summary>
-    public bool UseItem(InventoryItem itemToUse)
-    {
-        if (itemToUse == null) return false;
+        // Initialiser le Canvas Group si nécessaire
+        if (canvasGroup == null && interactionUI != null)
+            canvasGroup = interactionUI.GetComponent<CanvasGroup>();
         
-        // Find the item in the inventory
-        for (int i = 0; i < items.Count; i++)
-        {
-            if (items[i].item == itemToUse)
-            {
-                // Apply the item effect
-                bool used = ApplyItemEffect(itemToUse);
-                
-                if (used)
-                {
-                    // If the item is consumable, reduce its quantity
-                    if (itemToUse.consumable)
-                    {
-                        var stack = items[i];
-                        stack.count--;
-                        
-                        if (stack.count <= 0)
-                            items.RemoveAt(i);
-                        else
-                            items[i] = stack;
-                    }
-                    
-                    // Notify of the change
-                    OnInventoryChanged?.Invoke();
-                    return true;
-                }
-                return false;
-            }
-        }
-        
-        return false;
-    }
-
-    /// <summary>
-    /// Drops an item into the world
-    /// </summary>
-    public bool DropItem(InventoryItem itemToDrop, int amount = 1)
-    {
-        if (itemToDrop == null) return false;
-        
-        bool removed = RemoveItem(itemToDrop, amount);
-        
-        if (removed)
-        {
-            // Spawn a physical object in the world
-            SpawnDroppedItem(itemToDrop, amount);
-        }
-        
-        return removed;
-    }
-
-    /// <summary>
-    /// Swaps two items in the inventory
-    /// </summary>
-    public void SwapItems(int fromIndex, int toIndex)
-    {
-        if (fromIndex < 0 || fromIndex >= items.Count || toIndex < 0 || toIndex >= capacity)
-            return;
+        if (canvasGroup == null && interactionUI != null)
+            canvasGroup = interactionUI.AddComponent<CanvasGroup>();
             
-        // If the destination is empty and outside the current list
-        if (toIndex >= items.Count)
+        // S'abonner au changement de personnage
+        m_CharacterWatcher = FindObjectOfType<SoloPlayerCharacterEventWatcher>();
+        if (m_CharacterWatcher != null)
+            m_CharacterWatcher.AttachSubscriber(this);
+            
+        // Initialiser l'UI
+        HideInteractionUI();
+    }
+    
+    private void OnDestroy()
+    {
+        if (m_CharacterWatcher != null)
+            m_CharacterWatcher.ReleaseSubscriber(this);
+    }
+    
+// Correction pour InteractionManager.cs - Méthode Update()
+private void Update()
+{
+    if (!isPlayerControlsEnabled || FpsSoloCharacter.localPlayerCharacter == null)
+        return;
+            
+    // Raycast depuis la caméra du personnage
+    Camera fpsCam = FpsSoloCharacter.localPlayerCharacter.gameObject.GetComponentInChildren<Camera>();
+    if (fpsCam == null)
+        return;
+            
+    // Ajout de debug pour vérifier la distance
+    Debug.DrawRay(fpsCam.transform.position, fpsCam.transform.forward * interactionDistance, Color.yellow);
+            
+    if (Physics.Raycast(fpsCam.transform.position, fpsCam.transform.forward, out RaycastHit hit, interactionDistance, interactableMask))
+    {
+        // Sans filtrer par layer
+        IInteractable interactable = hit.collider.GetComponent<IInteractable>();
+        if (interactable == null)
+            interactable = hit.collider.GetComponentInParent<IInteractable>();
+                
+        if (interactable != null)
         {
-            // Add empty slots if needed
-            while (items.Count <= toIndex)
+            // Debug pour confirmer que l'objet interactable est détecté
+            Debug.Log($"Interactable détecté: {hit.collider.name}, distance: {hit.distance}");
+                
+            // Afficher l'UI d'interaction
+            ShowInteractionUI(interactable.GetInteractionText());
+            currentInteractable = interactable;
+                
+            // Interagir si le joueur utilise l'action d'interaction
+            if (IsInteractionTriggered())
             {
-                items.Add(new ItemStack { item = null, count = 0 });
+                interactable.Interact(FpsSoloCharacter.localPlayerCharacter.gameObject);
             }
+                
+            return;
         }
+    }
         
-        // Swap the items
-        ItemStack temp = items[fromIndex];
-        
-        if (toIndex < items.Count)
+    // Aucun objet interactif trouvé
+    currentInteractable = null;
+    HideInteractionUI();
+}
+
+// Assurez-vous que ShowInteractionUI fonctionne correctement
+private void ShowInteractionUI(string text)
+{
+    // Vérifier si InteractionPromptManager.Instance existe
+    if (InteractionPromptManager.Instance != null)
+    {
+        InteractionPromptManager.Instance.ShowPrompt(text);
+        Debug.Log($"Affichage du prompt via manager: {text}");
+    }
+    else
+    {
+        // Utiliser une méthode alternative si le manager n'existe pas
+        if (interactionUI != null)
         {
-            items[fromIndex] = items[toIndex];
-            items[toIndex] = temp;
+            interactionUI.SetActive(true);
+            if (interactionText != null)
+                interactionText.text = text;
+            if (canvasGroup != null)
+                canvasGroup.alpha = 1f;
+            Debug.Log($"Affichage du prompt direct: {text}");
         }
         else
         {
-            // Move to an empty slot
-            items[fromIndex] = new ItemStack { item = null, count = 0 };
-            items[toIndex] = temp;
+            Debug.LogError("InteractionUI n'est pas assigné dans l'inspecteur!");
         }
-        
-        // Clean up empty slots at the end of the list
-        CleanEmptySlots();
-        
-        // Notify of the change
-        OnInventoryChanged?.Invoke();
     }
-    #endregion
-
-    #region Helper Methods
-    /// <summary>
-    /// Apply the effect of an item
-    /// </summary>
-    private bool ApplyItemEffect(InventoryItem item)
+}
+    
+    private void HideInteractionUI()
     {
-        // Apply different effects based on item type
-        switch (item.itemType)
+        // Vérifier si InteractionPromptManager.Instance existe
+        if (InteractionPromptManager.Instance != null)
         {
-            case ItemType.Consumable:
-                // Example: Heal the player
-                var healthComp = PlayerManager.Instance?.GetHealthComponent();
-                if (healthComp != null)
+            InteractionPromptManager.Instance.HidePrompt();
+        }
+        else
+        {
+            // Utiliser une méthode alternative si le manager n'existe pas
+            if (interactionUI != null)
+            {
+                if (canvasGroup != null)
+                    canvasGroup.alpha = 0f;
+                interactionUI.SetActive(false);
+            }
+        }
+    }
+private bool IsInteractionTriggered()
+{
+    return Input.GetKeyDown(KeyCode.E) || Input.GetButtonDown("Interact");
+}
+    
+    public void EnableControls(bool enable)
+    {
+        isPlayerControlsEnabled = enable;
+        
+        // Désactiver/réactiver les contrôles du joueur si nécessaire
+        if (FpsSoloCharacter.localPlayerCharacter != null)
+        {
+            // Approche alternative pour désactiver les contrôles sans dépendre de MotionController
+            // Désactiver les composants de mouvement par leur nom de type
+            var components = FpsSoloCharacter.localPlayerCharacter.GetComponents<MonoBehaviour>();
+            foreach (var comp in components)
+            {
+                // Vérifier si le nom du type contient des mots-clés liés au mouvement
+                string typeName = comp.GetType().Name.ToLower();
+                if (typeName.Contains("motion") || typeName.Contains("controller") || 
+                    typeName.Contains("input") || typeName.Contains("movement"))
                 {
-                    // Adjust health based on effect value
-                    try {
-                        // Use reflection to handle different health systems
-                        var method = healthComp.GetType().GetMethod("AddHealth") ?? 
-                                    healthComp.GetType().GetMethod("Heal");
-                        
-                        if (method != null) {
-                            method.Invoke(healthComp, new object[] { item.effectValue });
-                            return true;
-                        }
-                    }
-                    catch (Exception e) {
-                        Debug.LogWarning($"Failed to apply health effect: {e.Message}");
+                    comp.enabled = enable;
+                }
+            }
+                
+            // Désactiver le look controller et les caméras
+            var fpsCameras = FpsSoloCharacter.localPlayerCharacter.GetComponentsInChildren<Camera>();
+            foreach (var cam in fpsCameras)
+            {
+                // Désactiver les scripts de caméra mais pas la caméra elle-même
+                var camComponents = cam.GetComponents<MonoBehaviour>();
+                foreach (var camComp in camComponents)
+                {
+                    string typeName = camComp.GetType().Name.ToLower();
+                    if (typeName.Contains("look") || typeName.Contains("camera") || 
+                        typeName.Contains("firstperson"))
+                    {
+                        camComp.enabled = enable;
                     }
                 }
-                break;
-                
-            case ItemType.Equipment:
-                // Equip the item
-                var equipmentComp = PlayerManager.Instance?.GetComponent<IEquipmentComponent>();
-                if (equipmentComp != null)
-                {
-                    equipmentComp.EquipItem(item);
-                    return true;
-                }
-                break;
-                
-            case ItemType.Quest:
-                // Quest items are generally not usable
-                return false;
-                
-            default:
-                return false;
+            }
         }
-        
-        return false;
     }
-
-    /// <summary>
-    /// Clean up empty slots from the inventory
-    /// </summary>
-    private void CleanEmptySlots()
+    
+    // Implémentation de IPlayerCharacterSubscriber
+    public void OnPlayerCharacterChanged(ICharacter character)
     {
-        for (int i = items.Count - 1; i >= 0; i--)
-        {
-            if (items[i].item == null || items[i].count <= 0)
-                items.RemoveAt(i);
-        }
+        // Réinitialiser l'UI quand le personnage change
+        HideInteractionUI();
+        currentInteractable = null;
     }
-
-    /// <summary>
-    /// Spawn a dropped item in the world
-    /// </summary>
-    private void SpawnDroppedItem(InventoryItem item, int amount)
-    {
-        if (item.dropPrefab == null)
-        {
-            Debug.LogWarning($"[InventoryManager] No drop prefab for {item.displayName}");
-            return;
-        }
-        
-        // Find position and orientation for the drop
-        Vector3 dropPosition = GetDropPosition();
-        Quaternion dropRotation = Quaternion.identity;
-        
-        // Instantiate the prefab
-        GameObject droppedItem = Instantiate(item.dropPrefab, dropPosition, dropRotation);
-        
-        // Configure the collectible if present
-        Collectible collectible = droppedItem.GetComponent<Collectible>();
-        if (collectible != null)
-        {
-            collectible.amount = amount;
-            collectible.itemID = item.itemID;
-            collectible.inventoryItem = item;
-        }
-    }
-
-    /// <summary>
-    /// Get the position to drop an item
-    /// </summary>
-    private Vector3 GetDropPosition()
-    {
-        // Find the player camera
-        Camera playerCamera = Camera.main;
-        if (playerCamera == null)
-        {
-            return transform.position + Vector3.forward;
-        }
-        
-        // Calculate a position in front of the player
-        Vector3 dropDirection = playerCamera.transform.forward;
-        Vector3 dropPosition = playerCamera.transform.position + dropDirection * 2f;
-        
-        // Optional: Raycast to avoid going through walls
-        if (Physics.Raycast(playerCamera.transform.position, dropDirection, out RaycastHit hit, 2f))
-        {
-            dropPosition = hit.point - dropDirection * 0.3f; // Slightly back from the impact point
-        }
-        
-        return dropPosition;
-    }
-    #endregion
 }
